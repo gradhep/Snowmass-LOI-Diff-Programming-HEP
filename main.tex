@@ -1,0 +1,186 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage[colorlinks=true,urlcolor=blue,anchorcolor=blue,citecolor=blue,filecolor=blue,linkcolor=blue,menucolor=blue]{hyperref}
+\usepackage[colorinlistoftodos,textsize=scriptsize]{todonotes}
+\usepackage{titling}
+
+\preauthor{%
+  \begin{center}
+}
+\postauthor{%
+  \end{center}%
+}
+\predate{%
+  \begin{center}
+}
+\postdate{%
+  \end{center}%
+  \vspace{-1em}
+}
+
+\title{Differentiable Programming in High-Energy Physics}
+
+\author{Atılım Güneş Baydin (Oxford), Kyle Cranmer (NYU), Matthew Feickert (UIUC), \\
+Lindsey Gray (FermiLab), Lukas Heinrich (CERN), Alexander Held (NYU)\\
+Andrew Melo (Vanderbilt)
+Mark Neubauer (UIUC), Jannicke Pearkes (Stanford), \\
+Nathan Simpson (Lund),
+Nick Smith (FermiLab), Giordon Stark (UCSC), \\
+Savannah Thais (Princeton),
+Vassil Vassilev (Princeton),
+Gordon Watts (U. Washington)}
+
+\begin{document}
+
+\maketitle
+
+\abstract{
+A key component to the success of deep learning is the use of gradient-based optimization. Deep learning practitioners compose a variety of modules together to build a complex computational pipeline that may depend on millions or billions of parameters. Differentiating such functions is enabled through a computational technique known as automatic differentiation.  The success of deep learning has led to an abstraction known as \textbf{differentiable programming}, which is being promoted to a first-class citizen in many programming languages and data analysis frameworks. This often involves replacing some common non-differentiable operations (eg. binning, sorting) with relaxed, differentiable analogues. The result is a system that can be optimized from end-to-end using efficient gradient-based optimization algorithms. A \textit{differentiable analysis} could be optimized in this way --- basic cuts to final fits all taking into account full systematic errors and automatically analyzed.  This Snowmass LOI outlines the potential advantages and challenges of adopting a differentiable programming paradigm in high-energy physics.}
+
+\section{Introduction}
+
+%Kyle: make point about objective and how that factorizes from core capability. Connect "minimization" and "fits" to "optimization".
+
+The need for gradients of numerical functions is ubiquitous in particle physics.
+Gradients are used in the classic formulas for propagation of uncertainty, where, in many cases, the needed derivatives are found symbolically and then coded by hand.
+For example, gradients are used in propagating uncertainties in the parameters of tracks to the parameters of vertices or propagating the uncertainty in energy calibration to an invariant mass.
+A further example of the use of gradients in particle physics can be seen in \texttt{MINUIT}~\cite{James:1975dr} --- a tool used to minimize (or maximize) an objective, such as a maximum-likelihood fit. \texttt{MINUIT} uses the method of finite differences to estimate the gradient, following it to minimize or to maximize the objective.
+Finite differences are poorly behaved numerically, and do not scale well to many parameters. 
+
+Particle physicists are also often interested in optimizing more complicated algorithms, such as those found in reconstruction, event selection, or down-stream analysis tasks. These algorithms also have several parameters (eg. calibration constants or cut values) that can be adjusted to optimize the objective at hand (eg. mass resolution or the expected significance for a search). These types of algorithms often involve \texttt{if-then-else} control flow, loops, sorting, binning, cuts, and other tasks that are inherently non-differentiable. Furthermore, our software infrastructure is not well suited to estimate derivatives of such analysis pipelines through finite differences (eg. through sequentially running \texttt{Athena}~\cite{Athena} or \texttt{CMSSW}~\cite{CMSSW} multiple times with different parameters). As a result, we often approach optimization of such pipelines  through heuristics and various parameter scanning approaches with various levels of sophistication. 
+
+The field of deep learning primarily uses gradient-based optimization, which requires the computation to be differentiable~\cite{2015Natur.521..436L}. Instead of using symbolic differentiation or finite difference methods, deep learning frameworks rely on a computational technique known as \textbf{automatic differentiation}~\cite{baydin2018automatic}, or `autodiff' for short, which provides derivatives of numerical functions with machine precision. This has allowed deep learning practitioners to compose various differentiable components into enormously complicated differentiable functions with millions, or even billions, of parameters. Moreover, these systems can be jointly optimized in an end-to-end fashion with respect to a single objective --- something not possible with a set of mixed strategies as typically used in particle physics.
+
+The success of deep learning has led to an abstraction known as \textbf{differentiable programming}~\cite{olah_2015,lecun_2018}, which is being treated as a first-class citizen in many programming languages and data analysis frameworks. Making a program differentiable often involves replacing some common non-differentiable operations (eg. binning, sorting) with relaxed, differentiable analogues. As noted in Ref.~\cite{Cranmer201912789}, \textit{with this view, incorporating automatic differentiation into existing codes is a more direct way to exploit the advances in deep learning than trying to incorporate domain knowledge into an entirely foreign substrate such as a deep neural network.} Importantly, the resulting system can still be optimized end-to-end using efficient gradient-based optimization algorithms. 
+
+%Based on the experience of the deep learning community, this core capability nurtures innovation, as it makes feasible the optimization of novel systems that were previously considered infeasible and those novel systems have led to improvements in sensitivity and qualitatively new analysis strategies.
+
+
+%\todo{Gunes: it looks like the analysis itself does not need or use derivatives; your main focus for derivatives is to optimize the analysis pipeline to improve the pipeline. This is somewhat like a meta-optimization or hyperparameter optimization and it would be interesting to address this. It's even more interesting if some parts of the analysis itself is internally based on derivatives (e.g., training a NN, fitting some model); then you would end up with nested autodiff.}
+
+%% <nathan>
+%Modern analyses in high-energy physics have many free \todo{Alex: maybe could start by saying that many "choices" are made in analyses, which can be described by free parameters (not sure how easily understandable "free parameters" are in this context)}parameters. They can be as simple as a set of cuts, or as complicated as the parameters of a neural network. To get the most performant analysis, these parameters are usually optimized with respect to the expected sensitivity to new phenomena, whether by hand, or by algorithm. However, despite sharing a common objective, these parameters are not usually optimized simultaneously, nor are they optimized with respect to the same objective. As an example, cuts are usually optimized by a grid search for the highest Asimov significance \cite{asymptotics}, whereas a neural network-based observable is usually optimized by gradient descent for the best discriminating power between signal and background processes (binary cross-entropy).
+
+
+\section{Initial Steps}
+
+An informal community of people has formed around this idea in the form of the \href{https://github.com/gradhep}{gradhep} organization. The group is investigating not only the technical side, but also thinking about use-cases and alternative differentiable relaxations of common non-differentiable algorithmic components.  More information on gradhep can be found at the \href{https://hepsoftwarefoundation.org/activities/differentiablecomputing.html}{HEP Software Foundation activity page}.
+
+\medskip
+
+{\flushleft \textbf{Differentiable Programming in Analysis Code:}}
+
+The goal of a \textbf{differentiable analysis} is to unify the analysis pipeline by \textit{simultaneously optimizing} the free parameters of an analysis with respect to the \textit{desired physics objective}. 
+%This is made possible using the machine learning-inspired cocktail of gradient-based optimization methods and automatic differentiation, which gives access to exact machine-computed gradients. 
+By using automatic differentiation in combination with the relaxation of non-differentiable operations, an analysis workflow can be made fully differentiable and end-to-end optimizable. 
+%Constructing a pipeline in this way is the definition of \textbf{differentiable programming}.
+
+
+A recent illustration of differentiable programming in the context of high-energy physics analysis can be seen in \texttt{INFERNO}~\cite{deCastro:2018mgh} and \texttt{neos}~\cite{neos}, which are example implementations of end-to-end optimized analysis pipelines that use the analysis sensitivity including systematic uncertainties as the objective function. These approaches introduced relaxations of the non-differentiable histogramming operation, and \texttt{neos} also made use of an advanced form of automatic differentiation needed as the optimization objective itself has a nested optimization associated to evaluating the profile likelihood ratio. 
+
+ %$p$-value 
+
+% Kyle: too detailed
+%The toy problem considered in \texttt{neos} concerns a set of signal and background points drawn from 2D normal distributions with slightly differing parameters. Additionally, two more sets of points are drawn from normal distributions on either side of the background distribution, which are considered as `up' and `down' variations of the background points, mimicking a correspondence to some arbitrary nuisance parameter. A neural network is then used as the observable, and a statistical model based on the \texttt{HistFactory} \cite{HistFactory} scheme is constructed. 
+%\texttt{neos} makes this pipeline end-to-end differentiable by changing the way gradients of fitted parameters are calculated, and by using relaxed versions of histograms. When trained to minimize the expected $p$-value, the resulting observable is performant for analysis in a way that accounts for the introduced systematic uncertainty. This behaviour emerges because systematic uncertainty is taken into consideration through the profile likelihood, which is part of the calculation of the $p$-value, and is hence considered in the objective function. Training to minimize this objective then naturally steps the parameters in the direction of a more systematic-aware (local) optimum.
+%% </nathan>
+
+%\todo{Nathan: Should we add a reference to INFERNO? Very similar to \texttt{neos}, but not sure to what extent it steps in the direction of fully differentiable analysis. @Kyle @Lukas?} \cite{deCastro:2018mgh}
+
+
+%\todo{Alex: is the invariance wrt. systematic always the case? I guess no, there should eventually be a trade-off between syst. and stat. uncertainty}\todo{Nathan: It's as you say, but I was a bit stuck on how to phrase it with a small amount of text, so I left it as-is (feel free to edit) edit: changed wording slightly}
+
+While \texttt{neos} is a good first step, a long-term goal of this effort is to optimize real physics analyses by incorporating automatic differentiation capabilities into the  software. The NSF-funded software institute IRIS-HEP has incorporated differentiable programming into its Analysis Grand Challenge, which is involved in the planning of tools such as \texttt{awkward-array}~\cite{awkward_array} and \texttt{pyhf}~\cite{pyhf}. DIANA/HEP and other NSF-related projects have invested in enabling automatic differentiation in ROOT via the clad library~\cite{clad_in_root}. In the longer term, one would like to have differentiable programming incorporated into the bulk event processing frameworks. The use of C++ autodiff libraries has been demonstrated in the context of \texttt{Athena}. In addition to autodiff libraries for C++ (eg. \href{https://github.com/coin-or/ADOL-C}{ADOL-C}), various white papers have emerged discussing autodiff as a first class citizen in some languages like C++~\cite{cpp_P2072R0}, Julia~\cite{julia}, Swift~\cite{swift}, and F\#~\cite{fsharp}.
+
+
+
+%Short (paragraph or two) on some of the demos that are out there now
+%\todo{Matthew: By ``demos`` do we mean here things like the examples \texttt{neos} has shown?
+%Or should we extend this further to Alex's tutorial on differentiable programming?}
+
+%\todo{Matthew: Lukas has given a talk on this subject before.
+%I can't remember where it was off the top of my head, but I remember him putting forward a fully differentiable model for ATLAS.}
+%\todo{Matthew: Is it worth noting that there is already a community of people around this idea in the form of the \href{https://github.com/gradhep}{gradhep} org?}
+
+%In terms of personpower, current efforts on differentiable programming in HEP are centered around the \href{https://github.com/gradhep}{gradhep} organization, which is open to anyone with an interest in this area.
+%More information on joining can be found at the \href{https://hepsoftwarefoundation.org/activities/differentiablecomputing.html}{HEP Software Foundation activity page}.
+
+%% </nathan>
+
+
+%Differentiable analysis brings the concepts of differentiable programming that has made it possible to fit functions with millions of parameters to data to the full analysis chain. Modern machine learning tool-kits, like TensorFlow and PyTorch, rely on differentiable programming techniques to calculate exact gradients for very complex functions with large numbers of parameters. A physics analysis contains many decisions, and scans over lists of objects - if statements and loops - things which traditional differentiable mathematics has trouble taking the gradient of. Differentiable programming, by taking the gradient only at a particular point in phase space, can work around this.
+
+%A physicist, once they have decided on the general strategy for an analysis, must still make many many decisions: what should the proper $p_T$ cut before the first jet. The second be different. How about the invariant mass cut? Typically, these decisions are made early in the analysis, on artificially clean Monte Carlo, and without taking into account their impact on systematic errors: imagine cutting on a variable right in the middle of an badly modeled region. A differentiable analysis defers these cuts until late in the analysis, after systematic errors have been folded in. The ultimate figure of merit - sensitivity - can be used to drive a minimization that allows jet cuts and other cuts normally fixed early in the analysis, to be automatically varied to maximize sensitivity given background and systematic errors. It is imagined that this will not only free up physicist time to concentrate on the physics, but also assure the analyzer that the analysis has the best sensitivity to the signal possible.
+
+%Added by Kyle
+\medskip
+
+{\flushleft \textbf{Differentiable Programming in Simulation Code:} }
+
+Even with a fixed analysis pipeline, there are cases in which one would like to compute gradients for simulated samples with respect to the parameters of the simulation. Therefore, differentiable programming
+%\todo{Gunes: I don't think ``probabilistic programming'' follows from the previous sentence. I don't see the connection.} \todo{Nathan: This sounds like an argument for a differentiable simulator, not for prob prog -- can you expand on the relation?} 
+is also something that is useful to incorporate into the simulators. These gradients are useful for simulation-based inference (aka likelihood-free inference) as they can reduce the number of simulated events needed by orders of magnitude~\cite{Brehmer:2018hga,Cranmer201912789}, and are also closely connected to the definition of Optimal Observables, sufficient statistics, and what statisticians refer to as the `score' function. The use of gradients to improve measurements has been explored for effective field theories~\cite{Brehmer:2018kdj,Brehmer:2018eca}, cosmology~\cite{Alsing:2018eau}, and dark matter substructure~\cite{Brehmer:2019jyt}. These works do this either by exploiting special cases that made the gradients easy to compute, or by writing custom simulators with automatic differentiation baked in. Recently, there has also been progress in evaluating \texttt{MadGraph} matrix elements with autodiff-enabled, Python-based machine learning backends~\cite{diff_ME}.
+
+%Other uses: propagationof errors etc.
+
+%Kyle: Nested autodiff
+
+%Added by Giordon
+%Kyle: seems we hit on this and not enough room for long narrative.
+%In particular, by making an analysis fully differentiable (end-to-end), you gain additional benefits such as propagating systematics without initial simplification or prior knowledge of the (possibly unknown, unmeasured) correlations. In larger particle physics collaborations, objects are calibrated as part of an analysis workflow using corrections and scale factors derived outside of the analysis itself. This leads to a bottleneck where the systematics can only be approximated through dedicated tools that modify these objects and kinematic variables in a rather opaque fashion. By transforming the analysis to become more differentiable, one can fold in the impact of these calibrations without relying on dedicated tools to estimate the uncertainties.... %something
+
+%\todo{Alex: it is not clear to me why differentiability is needed to propagate systematics without simplifications. One could measure everything in situ in principle?}
+%\todo{Kyle: I'm not quite sure what Giordon meant by "initial ismplification", but the standard propagation of errors formula uses partial derivatives. Eg. passing uncertainty of fit parameters of a track through to the uncertainty for a vertex. Even if you measure calibration constant in situ, there is still uncertainty to propagate through to an invariant mass. Note however, that the standard propagation of errors formula is also an approximation.}
+
+%\textbf{Todo} We should note C++ autodiff libraries.\todo{Gunes: ADOL-C can be cited as a minimum: \url{https://github.com/coin-or/ADOL-C}} We could also cite some white papers about autodiff becoming a first class citizen in some languages like Julia, Swift~\cite{swift}\todo{Gunes: the 1st author had chats with me about DiffSharp (F\# autodiff) when they were doing Swift work :)}, etc 
+%\textbf{Consier} We could say something about propagation of errors and systematics. Also, robust quantities where distribution doesn't depend on nuisance parameters involve gradients.
+
+%\section{Current State}
+%% <nathan>
+
+\section{Conclusions}
+
+While the potential of differentiable programming for particle physics is compelling, achieving this goal is ambitious. Incorporating automatic differentiation may be easier for some parts of HEP software than others. In addition, it is not clear that gradient-based optimization will always be superior to other black-box optimization algorithms that do not require gradients (eg. those used in hyperparameter optimization or the heuristic approaches traditionally used by physicists). The intention of this working group is to continue to investigate these issues, and provide input to the Snowmass process through ad-hoc contributions, with results and the state of the field summarized in a white-paper. 
+
+
+
+%\section{Challenges}
+
+%- Requiring the pipeline to be differentiable is a big ask, as many common operations in HEP aren't differentiable by default, e.g. histogramming, sorting, fitting.
+
+%- Optimizing an analysis in this way means one epoch == one analysis. This probably requires a lot of computation, and also raises the question of how big a batch size one is limited to -- still need to ensure it's a sufficient number of events to have reasonable statistical properties.
+
+%- Baking autodiff into things like Athena or CMSSW could prove to be a Herculean task, and may not be feasible.
+
+%Things to solve to make this something we can do. Hard cuts do not work. Histograms. Interfacing into existing systems. Binning/kernel choice. The different levels (e.g. could you to insitu calibration, etc.).
+
+
+% added by Alex - I am not sure this is fully in scope if we just intend to talk about the technical details in this LOI
+%\section{Outlook}
+%\textit{we could use such a section on possible implications of having differentiable analyses available, making the intro shorter?}
+%When end-to-end analysis optimization become technically possible, optimization objectives need to be chosen carefully. The largest possible sensitivity to a given signal may not always be desired. In an optimization based on a finite number of simulated events, the optimization may use unphysical statistical fluctuations. A loosened event selection can result in tighter constraints for systematic uncertainties, and consequently higher sensitivity. Physicists may however not trust that the measurement obtained in one region of phase space transfers to a different region without additional uncertainties. Penalty terms in the objective could help with such issues.
+
+
+%\section{Conclusion}
+
+%Goal: White paper. Perhaps some description of the contents, and the players (physicists from all over). A software implementation of differentiable HEP components will come from gradhep, and also probably a framework to help compose these differentiable `blocks' with the aim of minimal effort on the physicist's part.
+%\todo{Matthew: The ``physicists from all over'' is a good point as it will allow us to also make the point that the impact is large.
+%Just thinking from a myopic view of \texttt{pyhf} alone, with it being fully differentiable that has the possibility of impacting ATLAS (for sure), probably CMS and LHCb, and then potentially also Belle II.}
+
+%\section{To be removed: quick guide to references}
+%Auto-diff reference: \cite{baydin2018automatic};
+%Diff Prob references \cite{olah_2015,lecun_2018}
+
+%\textbf{Inference: }
+%use of gradients for inference general~\cite{Brehmer:2018hga,Cranmer201912789};
+%Use gradients for inference on EFTs~\cite{Brehmer:2018kdj,Brehmer:2018eca}; 
+%Use of gradients for inference in cosmology~\cite{Alsing:2018eau}; use of gradients for inference in dark matter~\cite{Brehmer:2019jyt}
+
+%\textbf{Deep Learning}: general~\cite{2015Natur.521..436L}, ML for physical sciences\cite{Carleo:2019ptp}
+
+
+\bibliographystyle{utphys}
+\bibliography{references}
+
+\end{document}
